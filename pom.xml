@@ -5,14 +5,12 @@
 
     <groupId>io.github.jmkeyes</groupId>
     <artifactId>curator-kubernetes-ensemble-provider</artifactId>
-    <version>${revision}</version>
+    <version>1.0.0-SNAPSHOT</version>
 
     <name>curator-kubernetes-ensemble-provider</name>
     <description>Apache Curator :: Kubernetes Ensemble Provider</description>
 
     <properties>
-        <revision>1.0.0-SNAPSHOT</revision>
-
         <java.version>17</java.version>
 
         <maven.compiler.source>${java.version}</maven.compiler.source>
