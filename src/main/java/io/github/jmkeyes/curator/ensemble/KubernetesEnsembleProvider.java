@@ -1,4 +1,4 @@
-package io.github.jmkeyes.zookeeper;
+package io.github.jmkeyes.curator.ensemble;
 
 import com.google.common.base.Joiner;
 import org.apache.curator.ensemble.EnsembleProvider;
@@ -12,6 +12,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * This {@link EnsembleProvider} preemptively resolves each of the hosts named
@@ -22,6 +24,7 @@ public final class KubernetesEnsembleProvider implements EnsembleProvider {
     private static final Logger log = LoggerFactory.getLogger(KubernetesEnsembleProvider.class);
 
     private ConnectStringParser connectionStringParser;
+    private Function<String, List<String>> resolver;
 
     /**
      * Initialize a new ensemble provider with the given connection string.
@@ -30,6 +33,24 @@ public final class KubernetesEnsembleProvider implements EnsembleProvider {
      */
     public KubernetesEnsembleProvider(String connectionString) {
         setConnectionString(connectionString);
+        setResolver((host) -> {
+            try {
+                return Arrays.stream(InetAddress.getAllByName(host))
+                        .map(InetAddress::getHostAddress)
+                        .toList();
+            } catch (UnknownHostException e) {
+                log.warn("Unresolvable host {} left in address set.", host, e);
+                return List.of(host);
+            }
+        });
+    }
+
+    /**
+     * Set the DNS resolver used by the {@link KubernetesEnsembleProvider}.
+     * @param resolver A function receiving a hostname and returning a list of IPs.
+     */
+    public void setResolver(Function<String, List<String>> resolver) {
+        this.resolver = resolver;
     }
 
     @Override
@@ -69,23 +90,14 @@ public final class KubernetesEnsembleProvider implements EnsembleProvider {
      */
     @Override
     public String getConnectionString() {
+        // Iterate through the provided connection string and resolve hosts to IPs if possible.
+        final SortedSet<String> addresses = connectionStringParser.getServerAddresses().stream()
+                .flatMap(hostAndPort -> resolver.apply(hostAndPort.getHostName()).stream()
+                        .map(address -> String.format("%s:%s", address, hostAndPort.getPort())))
+                        .collect(Collectors.toCollection(TreeSet::new));
+
+        // Build a new connection string from the resolved hosts.
         final StringBuilder connectStringBuilder = new StringBuilder();
-        final SortedSet<String> addresses = new TreeSet<>();
-
-        // Iterate through all hosts provided in the connection string.
-        connectionStringParser.getServerAddresses().forEach(hostAndPort -> {
-            try {
-                // Resolve each host into its IP addresses and append the port number to each one.
-                List<String> resolvedHosts = Arrays.stream(InetAddress.getAllByName(hostAndPort.getHostName()))
-                        .map(address -> String.format("%s:%s", address.getHostAddress(), hostAndPort.getPort()))
-                        .toList();
-
-                addresses.addAll(resolvedHosts);
-            } catch (UnknownHostException e) {
-                log.warn("Unresolvable host {} left in address set.", hostAndPort, e);
-                addresses.add(hostAndPort.toString());
-            }
-        });
 
         // Join all the resolved addresses into a comma-separated list.
         Joiner.on(",").appendTo(connectStringBuilder, addresses);
